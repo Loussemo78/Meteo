@@ -3,16 +3,21 @@ package com.example.meteo
 import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
+import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.meteo.databinding.ActivityProgressBarBinding
 import okhttp3.*
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 
 class ProgressBarActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityProgressBarBinding
+    private val weatherDataList = mutableListOf<WeatherData>()
+    private lateinit var adapter: WeatherDataAdapter
     private lateinit var timer: CountDownTimer
     private val handler = Handler()
     private var lastMessageUpdateTime: Long = 0L
@@ -23,6 +28,10 @@ class ProgressBarActivity : AppCompatActivity() {
 
         binding = ActivityProgressBarBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        adapter = WeatherDataAdapter(weatherDataList)
+        binding.recyclerView.layoutManager = LinearLayoutManager(binding.root.context)
+        binding.recyclerView.adapter = adapter
 
         // Initialisation de la jauge de progression
         binding.progressBar.progress = 0
@@ -56,6 +65,8 @@ class ProgressBarActivity : AppCompatActivity() {
                     handler.postDelayed({
                         callWeatherApi(cities[cityIndex])
                     }, 0)
+                    val resultList = ArrayList<String>()
+                    resultList.add(cities.size.toString())
                 }
 
 
@@ -63,6 +74,8 @@ class ProgressBarActivity : AppCompatActivity() {
             override fun onFinish() {
                 binding.progressBar.progress = 100
                 binding.progressBar.visibility = View.GONE
+                binding.recyclerView.visibility = View.VISIBLE
+
                 handler.removeCallbacksAndMessages(null)
             }
         }
@@ -78,10 +91,21 @@ class ProgressBarActivity : AppCompatActivity() {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 // Gestion de l'erreur
+                Log.e("MY-TAG", "API call failed for city: $city", e)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 // Traitement de la réponse
+                val responseData = response.body?.string()
+                Log.d("MY-TAG", "API response for city: $city\n$responseData")
+                val weatherData = parseWeatherData(responseData)
+                weatherData?.let {
+                    weatherDataList.add(it)
+                    runOnUiThread {
+                        adapter.notifyDataSetChanged()
+                        binding.recyclerView.visibility = View.VISIBLE
+                    }
+                }
             }
         })
     }
@@ -90,6 +114,25 @@ class ProgressBarActivity : AppCompatActivity() {
     companion object {
         val cities = arrayOf("Rennes", "Paris", "Nantes", "Bordeaux", "Lyon")
     }
+
+    private fun parseWeatherData(responseData: String?): WeatherData? {
+        responseData?.let {
+            try {
+                val jsonObject = JSONObject(it)
+                val cityName = jsonObject.getString("name")
+                val mainObject = jsonObject.getJSONObject("main")
+                val temperature = mainObject.getDouble("temp")
+                val cloudsObject = jsonObject.getJSONObject("clouds")
+                val cloudiness = cloudsObject.getDouble("all")
+
+                return WeatherData(cityName, temperature, cloudiness)
+            } catch (e: JSONException) {
+                Log.e("MY-TAG", "Error parsing JSON response", e)
+            }
+        }
+        return null
+    }
+
 
 
     data class WeatherData(
